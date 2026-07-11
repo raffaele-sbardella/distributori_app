@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helper ----------
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function incoming()   { return request.resource.data; }
+    function current()    { return resource.data; }
+
+    // Campi derivati dell'item che il client NON deve mai toccare (D8)
+    function itemDerivedUnchanged() {
+      return incoming().currentPrice    == current().currentPrice
+          && incoming().confidenceBase  == current().confidenceBase
+          && incoming().lastConfirmedAt == current().lastConfirmedAt
+          && incoming().reportCount     == current().reportCount;
+    }
+
+    // ---------- users ----------
+    match /users/{userId} {
+      allow read: if true;                       // profilo pubblico (displayName, reputation)
+      allow create: if isOwner(userId)
+                    && incoming().reputation == 0
+                    && incoming().validatedContributions == 0;
+      allow update: if isOwner(userId)           // reputation e contributi = solo server
+                    && incoming().reputation == current().reputation
+                    && incoming().validatedContributions == current().validatedContributions;
+      allow delete: if false;
+    }
+
+    // ---------- products (catalogo canonico) ----------
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+                    && incoming().createdBy == request.auth.uid
+                    && incoming().verified == false      // nasce non verificato
+                    && incoming().name is string && incoming().name.size() > 0;
+      allow update, delete: if false;            // dedup/verify li gestisci server-side
+    }
+
+    // ---------- machines (distributore) ----------
+    match /machines/{machineId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+                    && incoming().createdBy == request.auth.uid
+                    && incoming().status == 'active'
+                    && incoming().goneVotes == 0
+                    && incoming().geo.geopoint is latlng;   // NB: campo 'geo' annidato
+      allow update: if isSignedIn()              // solo campi descrittivi
+                    && incoming().goneVotes == current().goneVotes
+                    && incoming().status    == current().status
+                    && incoming().createdBy == current().createdBy;
+      allow delete: if false;
+
+      // ---------- items (cosa vende QUESTO distributore) ----------
+      match /items/{itemId} {
+        allow read: if true;
+        allow create: if isSignedIn()
+                      && incoming().productId is string
+                      && incoming().reportCount == 0;
+
+        // >>>>>>>>>>>>>>>> RIGA DEL BIVIO (vedi CLAUDE.md §6) <<<<<<<<<<<<<<<<
+        //
+        // [TARGET / Cloud Function] i campi derivati NON cambiano da client.
+        // Da riattivare in Fase 4, quando computeDerived girera' server-side:
+        // allow update: if isSignedIn() && itemDerivedUnchanged();
+        //
+        // [MVP pura-client - ATTIVO ORA] Controlla solo la FORMA, non la
+        // correttezza: il client puo' ancora mentire sul prezzo. E' il
+        // compromesso accettato dell'MVP (D11).
+        allow update: if isSignedIn()
+          && incoming().currentPrice is number && incoming().currentPrice > 0
+          && incoming().confidenceBase is number
+          && incoming().confidenceBase >= 0 && incoming().confidenceBase <= 1;
+        //
+        // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+        allow delete: if false;
+
+        // ---------- priceReports (osservazioni grezze, append-only) ----------
+        match /priceReports/{reportId} {
+          allow read: if true;
+          allow create: if isSignedIn()
+                        && incoming().userId == request.auth.uid
+                        && incoming().price is number && incoming().price > 0
+                        && incoming().timestamp == request.time   // => serverTimestamp() obbligatorio
+                        && incoming().gpsVerified is bool
+                        && incoming().validated == false          // la validazione la decide il server
+                        && incoming().kind in ['new', 'confirm', 'change'];
+          allow update, delete: if false;        // un'osservazione non si modifica ne' si cancella
+        }
+      }
+    }
+  }
+}

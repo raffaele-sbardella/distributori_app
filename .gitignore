@@ -1,0 +1,28 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+# NB: pubspec.lock si COMMITTA (questa e' un'app, non una libreria):
+# blocca le versioni esatte delle dipendenze -> build riproducibili.
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Android
+android/.gradle/
+android/local.properties
+
+# Firebase - file generati da `flutterfire configure`, si rigenerano su ogni
+# macchina. NB: niente commenti sulla stessa riga dei pattern! gitignore non
+# li supporta e il pattern smette di funzionare in silenzio.
+android/app/google-services.json
+lib/firebase_options.dart
+.firebase/
+*.log
+
+# OS
+.DS_Store
