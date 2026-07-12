@@ -9,6 +9,10 @@ class VendingItem {
   final String machineId;
   final String productId;
   final String productName;
+  // Copia della categoria del prodotto canonico (denormalizzata come
+  // productName): serve al filtro bibite/snack nel dettaglio senza dover
+  // fare una seconda query sul catalogo.
+  final String category;
   final double currentPrice;    // DERIVATO
   final String currency;
   final double confidenceBase;  // DERIVATO: evidence x agreement (parte strutturale)
@@ -21,6 +25,7 @@ class VendingItem {
     required this.machineId,
     required this.productId,
     required this.productName,
+    this.category = 'altro',
     required this.currentPrice,
     required this.currency,
     required this.confidenceBase,
@@ -36,6 +41,8 @@ class VendingItem {
       machineId: d['machineId'] as String? ?? '',
       productId: d['productId'] as String? ?? '',
       productName: d['productName'] as String? ?? '',
+      // Item creati prima dell'introduzione del campo -> 'altro'.
+      category: d['category'] as String? ?? 'altro',
       currentPrice: (d['currentPrice'] as num?)?.toDouble() ?? 0,
       currency: d['currency'] as String? ?? 'EUR',
       confidenceBase: (d['confidenceBase'] as num?)?.toDouble() ?? 0,

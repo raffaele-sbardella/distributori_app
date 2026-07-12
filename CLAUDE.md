@@ -76,16 +76,39 @@ questo principio, è quasi certamente sbagliata.
       deployano con `firebase deploy --only firestore:rules`, niente copia-incolla.
 - [x] `flutter analyze`: **zero problemi**
 
+- [x] `screens/add_machine/add_machine_screen.dart`: form nuovo distributore da
+      long-press sulla mappa (+ `FirestoreService.createMachine`) → sblocca il seeding.
+      Indirizzo precompilato via reverse geocoding (`geocoding`, geocoder nativo Android)
+- [x] `screens/add_report/add_report_screen.dart`: autocomplete sul catalogo (D3),
+      creazione prodotto nuovo come via secondaria, prezzo → `submitReport`.
+      **FASE 1 COMPLETA**: il loop core mappa→dettaglio→report è tutto scritto
+- [x] Mappa: pallino blu posizione utente (positionStream), marker con `rotate: true`
+- [x] **`flutter run` sul telefono**: primo avvio riuscito (2026-07-11).
+      Fix a caldo: la mappa ora REAGISCE ad accensione/spegnimento del GPS
+      (`serviceStatusStream` in `location_service` + subscription in `map_screen`)
+- [x] **Cooldown segnalazioni (D19)**: 1 per utente/item/24h — `nextAllowedReportTime()`
+      pura in `price_calculator.dart`, check in `submitReport` prima di ogni scrittura,
+      esito `ReportOutcome.rateLimited`. Test inclusi (2026-07-12)
+- [x] Dettaglio distributore: barra di ricerca + chip filtro categoria (in memoria).
+      Il campo `category` è ora denormalizzato sugli item (come `productName`);
+      item vecchi senza campo → 'altro' (2026-07-12)
+- [x] Paracadute anti-typo alla creazione prodotto (`services/product_matcher.dart`,
+      puro + testato): normalizzazione (spazi/maiuscole/formato) + fuzzy
+      Damerau-Levenshtein sul catalogo → dialog "Forse è già in catalogo"
+      con [Usa quello]/[Crea nuovo] in add_report (2026-07-12)
+
 ### Da fare (in ordine)
-- [ ] **`flutter run` sul telefono** (debug USB) → prima prova end-to-end vera
-- [ ] **`screens/add_report/`** ← PROSSIMO PEZZO DI CODICE
-      (autocomplete su `products` + inserimento prezzo per prodotti nuovi;
-      la conferma/cambio dei prezzi ESISTENTI è già inline in machine_detail)
-- [ ] Seeding manuale di UN cluster denso a Battipaglia
+- [ ] **Seeding manuale di UN cluster denso a Battipaglia** ← PROSSIMO PASSO (Fase 2:
+      si fa sul campo con l'app, non al PC)
 
 ### Non ancora deciso / aperto
 - Quali funzioni premium sbloccare col contributo (vedi §5, decisione D13)
 - Deduplica del catalogo `products` (per ora: autocomplete che spinge a scegliere)
+- **Typo nei prodotti**: la PREVENZIONE è fatta (normalizzazione + avviso fuzzy in
+  `product_matcher.dart`). La CORREZIONE a posteriori resta solo da console Firebase
+  (le rules bloccano `update` sui products, ed è voluto); merge/rinomina come strumento
+  admin server-side → Fase 4. NB: rinominare un prodotto NON basta — `productName` è
+  denormalizzato sugli item.
 - Query cross-distributore "prodotto X più economico entro 2 km" (serve indice
   collection-group; il campo `geohash` è già denormalizzato sugli item per questo)
 
@@ -139,6 +162,11 @@ questo principio, è quasi certamente sbagliata.
   i duplicati diventano irrappresentabili per costruzione.
 - **D10 — `priceReports` è append-only.** Un'osservazione non si modifica né si cancella.
 - **D11 — MVP calcola lato client; il target è una Cloud Function.** ⚠️ Vedi §6.
+- **D19 — Cooldown anti "consenso fabbricato".** UNA segnalazione (conferma O cambio) per
+  utente, per item, ogni 24 h: senza, un utente da solo gonfia la confidence
+  confermandosi. `nextAllowedReportTime()` (pura), applicata da `submitReport` PRIMA di
+  ogni scrittura. Client-side nell'MVP (coerente con D11); nel target passa alla
+  Cloud Function.
 - **D12 — Cold start: seedare UN cluster denso**, non pin sparsi. Un pin isolato fa
   sembrare l'app rotta; una zona coperta al 100% (università/ospedale/stazione) dà valore
   immediato.
@@ -222,6 +250,15 @@ Function nel target.
 6. **Indici Firestore**: la query cross-distributore chiederà un indice composito +
    collection-group. Firestore fornisce il link per crearlo nel messaggio d'errore: è
    normale, non è un bug.
+7. **Mai `controller.dispose()` subito dopo `await showDialog(...)`**: il Future si
+   completa AL POP, ma il dialog resta montato durante l'animazione di chiusura →
+   crash `'_dependents.isEmpty': is not true`. Regola: il controller lo possiede il
+   widget (Stateful) che costruisce il TextField, e lo rilascia nel SUO `dispose()`.
+   Vedi `_PriceDialog` in `machine_detail_screen.dart`.
+8. **API che cambiano tra major version dei pacchetti geo**: già successo DUE volte
+   (`geoflutterfire_plus`: nome del metodo di query; `geocoding` v5: da funzione
+   top-level a metodo di `Geocoding()`). Prima di usare un esempio dal web, verificare
+   l'API sulla versione installata in `%LOCALAPPDATA%\Pub\Cache\hosted\pub.dev\`.
 
 ---
 

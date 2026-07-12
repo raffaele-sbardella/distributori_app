@@ -3,10 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/machine.dart';
-import '../../models/price_report.dart'; // per ReportKind: gli import Dart NON sono transitivi
 import '../../models/vending_item.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
+import '../add_report/add_report_screen.dart';
 
 /// Dettaglio di UN distributore: lista prodotti con prezzo, pallino di
 /// confidence (verde/giallo/grigio) e "confermato N giorni fa" SEMPRE visibile
@@ -38,12 +38,38 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   // per evitare il doppio tap.
   final Set<String> _submitting = {};
 
+  // Ultima lista emessa dallo stream: serve al bottone "Aggiungi prodotto"
+  // per passare gli item correnti a add_report (controllo duplicati, D9).
+  List<VendingItem> _lastItems = const [];
+
+  // Ricerca e filtro categoria: agiscono in MEMORIA sulla lista che arriva
+  // dallo stream, zero query in piu'. _query e' la copia lowercase del testo
+  // (per non rifare toLowerCase a ogni riga a ogni ridisegno).
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+  String? _categoryFilter; // null = tutte le categorie
+
+  static const _categoryLabels = {
+    'bibita': 'Bibite',
+    'snack': 'Snack',
+    'caffè': 'Caffè',
+    'altro': 'Altro',
+  };
+
   @override
   void initState() {
     super.initState();
     _service = FirestoreService(FirebaseFirestore.instance);
     _itemsStream = _service.itemsForMachine(widget.machine.id);
     _checkProximity();
+  }
+
+  @override
+  void dispose() {
+    // Il controller lo possediamo noi (siamo il widget che costruisce il
+    // TextField della ricerca): va rilasciato nel NOSTRO dispose.
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _checkProximity() async {
@@ -63,46 +89,14 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
       _submit(item, item.currentPrice);
 
   /// Il tap "E' cambiato": chiede il nuovo prezzo in un dialog.
+  /// showDialog restituisce un Future che si completa quando il dialog viene
+  /// chiuso, col valore passato a Navigator.pop(): il prezzo, o null se
+  /// l'utente annulla.
   Future<void> _askNewPrice(VendingItem item) async {
-    final controller = TextEditingController();
-    // showDialog restituisce un Future che si completa quando il dialog viene
-    // chiuso, col valore passato a Navigator.pop(). Qui: il prezzo, o null se
-    // l'utente annulla.
     final newPrice = await showDialog<double>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(item.productName),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            labelText: 'Prezzo attuale (€)',
-            hintText: 'es. 1,80',
-          ),
-        ),
-        actions: [
-          TextButton(
-            // Navigator.of(dialogContext), NON of(context): va chiuso il
-            // dialog, che vive in una route propria sopra la schermata.
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Annulla'),
-          ),
-          FilledButton(
-            onPressed: () {
-              // Virgola decimale all'italiana -> punto, poi parse.
-              final parsed =
-                  double.tryParse(controller.text.trim().replaceAll(',', '.'));
-              if (parsed != null && parsed > 0 && parsed < 100) {
-                Navigator.of(dialogContext).pop(parsed);
-              }
-            },
-            child: const Text('Invia'),
-          ),
-        ],
-      ),
+      builder: (_) => _PriceDialog(title: item.productName),
     );
-    controller.dispose();
     if (newPrice != null) await _submit(item, newPrice);
   }
 
@@ -124,21 +118,14 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
         existingItem: item,
         productId: item.productId,
         productName: item.productName,
+        productCategory: item.category,
         price: price,
         userId: uid,
         location: _location,
       );
       if (!mounted) return;
 
-      var msg = switch (outcome.kind) {
-        ReportKind.confirm => 'Grazie! Prezzo confermato.',
-        ReportKind.change => 'Grazie! Cambio di prezzo registrato.',
-        ReportKind.newPrice => 'Grazie! Primo prezzo registrato.',
-      };
-      if (!outcome.gpsVerified) {
-        msg += ' (posizione non verificata: peserà meno)';
-      }
-      _showMessage(msg);
+      _showMessage(outcome.userMessage);
     } catch (e) {
       if (mounted) _showMessage('Invio non riuscito, riprova. ($e)');
     } finally {
@@ -148,6 +135,20 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
 
   void _showMessage(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Apre add_report; se ha inviato, mostra qui l'esito (la schermata si e'
+  /// gia' chiusa: uno snackbar mostrato la' morirebbe con lei).
+  Future<void> _openAddReport() async {
+    final outcome = await Navigator.of(context).push<ReportOutcome>(
+      MaterialPageRoute(
+        builder: (_) => AddReportScreen(
+          machine: widget.machine,
+          existingItems: _lastItems,
+        ),
+      ),
+    );
+    if (outcome != null && mounted) _showMessage(outcome.userMessage);
   }
 
   // ============ HELPER DI PRESENTAZIONE ============
@@ -183,6 +184,11 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.machine.label)),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openAddReport,
+        icon: const Icon(Icons.add),
+        label: const Text('Aggiungi prodotto'),
+      ),
       body: Column(
         children: [
           _buildProximityBanner(),
@@ -202,6 +208,9 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
                 // non e' garantito e le righe "salterebbero" a ogni update.
                 final items = [...snapshot.data!]
                   ..sort((a, b) => a.productName.compareTo(b.productName));
+                // Fotografia per il bottone "Aggiungi prodotto". Assegnazione
+                // semplice, NIENTE setState: siamo dentro build().
+                _lastItems = items;
 
                 if (items.isEmpty) {
                   return const Center(
@@ -209,24 +218,115 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
                       padding: EdgeInsets.all(24),
                       child: Text(
                         'Nessun prodotto ancora per questo distributore.\n\n'
-                        'L\'inserimento arriva con la schermata add_report '
-                        '(prossimo pezzo della roadmap).',
+                        'Aggiungi il primo col bottone qui sotto!',
                         textAlign: TextAlign.center,
                       ),
                     ),
                   );
                 }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: items.length,
-                  itemBuilder: (context, i) => _buildItemCard(items[i]),
+                // Ricerca + categoria si applicano QUI, sulla lista completa:
+                // lo stream resta intatto (i filtri sono solo presentazione).
+                final visible = items.where((it) {
+                  final okCategory = _categoryFilter == null ||
+                      it.category == _categoryFilter;
+                  final okText = _query.isEmpty ||
+                      it.productName.toLowerCase().contains(_query);
+                  return okCategory && okText;
+                }).toList();
+
+                return Column(
+                  children: [
+                    _buildFilterBar(items),
+                    Expanded(
+                      child: visible.isEmpty
+                          ? const Center(
+                              child: Text(
+                                  'Nessun prodotto corrisponde ai filtri.'),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(8),
+                              itemCount: visible.length,
+                              itemBuilder: (context, i) =>
+                                  _buildItemCard(visible[i]),
+                            ),
+                    ),
+                  ],
                 );
               },
             ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Barra di ricerca + chip delle categorie, sopra la lista prodotti.
+  Widget _buildFilterBar(List<VendingItem> items) {
+    // Chip solo per le categorie DAVVERO presenti in questo distributore:
+    // un chip che porta a una lista vuota e' rumore. L'ordine e' quello
+    // fisso di _categoryLabels, non quello (casuale) degli item.
+    final present = {for (final it in items) it.category};
+    final cats = [
+      for (final key in _categoryLabels.keys)
+        if (present.contains(key)) key,
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: 'Cerca un prodotto...',
+              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              border: const OutlineInputBorder(),
+              // La X per svuotare compare solo quando c'e' del testo.
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _query = '');
+                      },
+                    ),
+            ),
+            onChanged: (text) =>
+                setState(() => _query = text.trim().toLowerCase()),
+          ),
+          // I chip hanno senso solo se c'e' davvero da scegliere: con una
+          // sola categoria presente filtrerebbero... niente.
+          if (cats.length > 1)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    _categoryChip(null, 'Tutti'),
+                    for (final c in cats) ...[
+                      const SizedBox(width: 8),
+                      _categoryChip(c, _categoryLabels[c]!),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Un singolo chip: value == null significa "Tutti" (nessun filtro).
+  Widget _categoryChip(String? value, String label) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: _categoryFilter == value,
+      onSelected: (_) => setState(() => _categoryFilter = value),
     );
   }
 
@@ -353,6 +453,67 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Dialog "nuovo prezzo" come widget CON STATO PROPRIO.
+///
+/// Perche' non un semplice showDialog con un controller creato fuori?
+/// Perche' il Future di showDialog si completa AL POP, ma il dialog resta
+/// montato ancora qualche frame per l'animazione di chiusura: fare
+/// controller.dispose() subito dopo l'await distrugge il controller mentre
+/// il TextField lo sta ancora usando -> crash "_dependents.isEmpty".
+/// Regola: il controller lo POSSIEDE il widget che costruisce il TextField,
+/// e lo rilascia nel SUO dispose(), che Flutter chiama solo a smontaggio
+/// davvero avvenuto.
+class _PriceDialog extends StatefulWidget {
+  final String title;
+  const _PriceDialog({required this.title});
+
+  @override
+  State<_PriceDialog> createState() => _PriceDialogState();
+}
+
+class _PriceDialogState extends State<_PriceDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(
+          labelText: 'Prezzo attuale (€)',
+          hintText: 'es. 1,80',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annulla'),
+        ),
+        FilledButton(
+          onPressed: () {
+            // Virgola decimale all'italiana -> punto, poi parse.
+            final parsed = double.tryParse(
+                _controller.text.trim().replaceAll(',', '.'));
+            if (parsed != null && parsed > 0 && parsed < 100) {
+              Navigator.of(context).pop(parsed);
+            }
+          },
+          child: const Text('Invia'),
+        ),
+      ],
     );
   }
 }

@@ -302,3 +302,37 @@ e zero flussi funzionanti.
 traffico da app in scala**. Se l'app crescesse davvero, serve passare a un provider di tile
 (MapTiler, Thunderforest...) **cambiando solo l'`urlTemplate`**. È una riga, non un problema
 architetturale — ma va saputo fin d'ora.
+
+---
+
+## D19 — Cooldown: UNA segnalazione per utente, per item, ogni 24 ore
+
+**Decisione.** Un utente può confermare/cambiare il prezzo di un prodotto al massimo una
+volta ogni 24 ore (per quel prodotto in quel distributore). Conferma e cambio contano
+insieme: una sola azione al giorno, di qualunque tipo. Il controllo è
+`nextAllowedReportTime()` (funzione pura in `price_calculator.dart`), applicato da
+`FirestoreService.submitReport` **prima di qualunque scrittura**; il rifiuto torna alla UI
+come `ReportOutcome.rateLimited`, con l'ora in cui si potrà riprovare.
+
+**Perché.** Senza limite, un utente da solo può **fabbricare consenso**: 10 conferme dello
+stesso prezzo alzano evidence e agreement come se fossero 10 persone diverse. Col cooldown,
+per far salire la confidence servono **persone diverse o giorni diversi** — che è
+esattamente l'informazione che il sistema vuole misurare ("il prezzo regge nel tempo").
+È il complemento di D6: il GPS filtra chi *non è lì*, il cooldown filtra chi *è lì ma
+insiste*.
+
+**Perché 24 ore e non "una volta per sempre".** Il valore del sistema è la ri-conferma nel
+tempo (D7): lo stesso pendolare che conferma la Coca ogni mattina è il flusso di dati
+ideale, non un abuso. 24h lascia vivere questo pattern e uccide solo il "tap tap tap" in
+sequenza.
+
+**Limite noto (coerente con D11).** L'enforcement è client-side: un client malevolo può
+aggirarlo. Le security rules da sole non possono farlo (non possono fare query su una
+collection). Nel target il controllo trasloca nella Cloud Function insieme al resto — la
+funzione pura è già scritta per essere tradotta tale e quale.
+
+**Dettaglio implementativo.** La query prende i report dell'utente col **solo filtro di
+uguaglianza** su `userId` (basta l'indice automatico) e trova il più recente **in memoria**:
+aggiungere `orderBy(timestamp)` richiederebbe un indice composito (trappola n.6) senza
+guadagno reale, perché è il cooldown stesso a tenere piccolo il numero di report per
+utente per item.

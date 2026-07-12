@@ -22,7 +22,7 @@ che gira.
 ## Fase 0 — Ambiente (bloccante)
 - [x] Setup Windows completo → `flutter doctor` senza problemi (2026-07-11)
 - [x] Progetto Firebase `app-distributori` + rules pubblicate (ramo MVP attivo)
-- [ ] `flutter run` funziona
+- [x] `flutter run` funziona (2026-07-11, primo avvio su telefono reale) → **Fase 0 COMPLETATA**
 
 ## Fase 1 — Il loop core (l'MVP vero)
 - [x] Model + servizi + `map_screen`
@@ -32,9 +32,11 @@ che gira.
       - riga prodotto: nome, prezzo, **pallino colorato di confidence** + "confermato N giorni fa"
       - se GPS verificato → **conferma a un tocco** (D7): *"Ancora €1.50? [Sì] [È cambiato]"*
         (il "È cambiato" apre un dialog inline: niente schermata separata per i prezzi esistenti)
-- [ ] `add_report_screen.dart` ← prossimo pezzo: autocomplete su `products` (spinge a **scegliere**, non creare) → prezzo → invio
-- [ ] Aggiunta di un nuovo distributore dalla mappa (long-press → form)
+- [x] `add_report_screen.dart`: autocomplete su `products` (spinge a **scegliere**, non creare) → prezzo → invio
+      → **FASE 1 COMPLETA (2026-07-11): il loop core è tutto scritto. Ora: seeding sul campo (Fase 2).**
+- [x] Aggiunta di un nuovo distributore dalla mappa (long-press → form, `add_machine_screen.dart`)
 - [x] Test unitari su `computeDerived()` → `test/price_calculator_test.dart` (6 test, tutti verdi)
+- [x] Cooldown anti-spam (D19): 1 segnalazione per utente/item/24h, con test
 
 ## Fase 2 — Il cold start (D12)
 - [ ] Scegliere **UN cluster denso** ad alto passaggio (università / ospedale / stazione / palestra)
@@ -50,9 +52,14 @@ che gira.
 ## Fase 4 — Affidabilità "da prodotto"
 - [ ] **Cloud Function**: sposta `computeDerived` server-side (D11)
       → commuta le rules sul ramo **TARGET**, e `submitPriceReport` si limita ad aggiungere il report
+      → e il cooldown D19 (`nextAllowedReportTime`) diventa enforcement server-side
+        (oggi è solo client-side: un client malevolo può aggirarlo)
 - [ ] Piano **Blaze** + **Storage** → foto dell'etichetta (peso 1.4)
 - [ ] Sconto immediato sui report `kind = "change"` (§Estensioni di `03-ALGORITMO-PREZZI.md`)
 - [ ] Flag "distributore non c'è più" (`goneVotes`) con soglia di rimozione
+- [ ] Merge/rinomina prodotti (typo e doppioni sfuggiti al fuzzy): strumento admin
+      server-side — deve sistemare anche `productName`/`category` denormalizzati
+      sugli item e travasare i report (itemId == productId, D9)
 
 ## Fase 5 — Crescita (solo se il loop funziona)
 - [ ] **Reputazione** (`w_rep`) — entra solo lì, nient'altro da toccare

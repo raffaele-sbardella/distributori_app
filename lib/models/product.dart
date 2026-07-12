@@ -23,6 +23,11 @@ class Product {
     required this.createdBy,
   });
 
+  /// Nome mostrato in UI e denormalizzato su item.productName:
+  /// "Coca-Cola 33cl". La taglia fa parte dell'identita' del prodotto
+  /// (la lattina e la bottiglia hanno prezzi diversi).
+  String get displayName => size.isEmpty ? name : '$name $size';
+
   factory Product.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data()!;
     return Product(

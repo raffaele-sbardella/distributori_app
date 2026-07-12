@@ -1,3 +1,4 @@
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
 /// Esito possibile di una richiesta di posizione.
@@ -32,6 +33,48 @@ class ProximityResult {
 }
 
 class LocationService {
+  /// Emette true/false OGNI VOLTA che il GPS di sistema viene acceso/spento,
+  /// anche mentre l'app e' aperta. Senza questo, lo stato del GPS viene letto
+  /// solo all'avvio della schermata e i cambi successivi passano inosservati.
+  Stream<bool> serviceStatusStream() => Geolocator.getServiceStatusStream()
+      .map((s) => s == ServiceStatus.enabled);
+
+  /// Posizione dell'utente in tempo reale (per il pallino blu sulla mappa).
+  /// Il tipo di ritorno e' un RECORD con campi nominati ({lat, lng}):
+  /// cosi' chi ascolta non ha bisogno di importare geolocator.
+  /// distanceFilter: emette solo se ci si e' spostati di almeno N metri
+  /// (senza, il GPS "balbetta" eventi continui anche da fermi).
+  Stream<({double lat, double lng})> positionStream(
+      {int distanceFilterMeters = 10}) {
+    return Geolocator.getPositionStream(
+      locationSettings: LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: distanceFilterMeters,
+      ),
+    ).map((p) => (lat: p.latitude, lng: p.longitude));
+  }
+
+  /// Reverse geocoding: da un punto (long-press) all'indirizzo leggibile.
+  /// Usa il geocoder NATIVO di Android (gratis, niente API key). Puo' fallire
+  /// (offline, servizio assente): in quel caso null, MAI un'eccezione — un
+  /// indirizzo mancante non deve bloccare l'inserimento di un distributore.
+  Future<String?> addressFromPoint(double lat, double lng) async {
+    try {
+      // NB API cambiata nella v5 (stessa trappola di geoflutterfire_plus):
+      // niente piu' funzione top-level, si passa dall'oggetto Geocoding.
+      final places = await Geocoding().placemarkFromCoordinates(lat, lng);
+      if (places.isEmpty) return null;
+      final p = places.first;
+      final parts = [p.street, p.locality]
+          .where((s) => s != null && s.isNotEmpty)
+          .cast<String>()
+          .toList();
+      return parts.isEmpty ? null : parts.join(', ');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Soglia di prossimita'. 50 m e' un compromesso: il GPS urbano sbaglia
   /// facilmente di 10-30 m, quindi un valore troppo stretto darebbe falsi
   /// "sei lontano" a gente davvero davanti al distributore (D6).

@@ -17,11 +17,12 @@ PriceReport report({
   required DateTime timestamp,
   bool gps = true,
   String? photoUrl,
+  String userId = 'u',
 }) =>
     PriceReport(
       id: 'r',
       price: price,
-      userId: 'u',
+      userId: userId,
       timestamp: timestamp,
       photoUrl: photoUrl,
       gpsVerified: gps,
@@ -123,5 +124,45 @@ void main() {
     )!;
     expect(d.currentPrice, 1.50);
     expect(d.lastConfirmedAt, weekAgo); // e' l'onesta' della UI (doc 03)
+  });
+
+  // ============ COOLDOWN (D19): 1 segnalazione per utente ogni 24h ============
+
+  group('nextAllowedReportTime', () {
+    test('nessun report -> via libera', () {
+      expect(nextAllowedReportTime([], userId: 'u', now: now), isNull);
+    });
+
+    test('report di 2 ore fa -> bloccato fino a 24h DAL REPORT', () {
+      final r =
+          report(price: 1.50, timestamp: now.subtract(const Duration(hours: 2)));
+      expect(
+        nextAllowedReportTime([r], userId: 'u', now: now),
+        now.add(const Duration(hours: 22)), // 24h dal report = fra 22h
+      );
+    });
+
+    test('report di 25 ore fa -> via libera', () {
+      final r = report(
+          price: 1.50, timestamp: now.subtract(const Duration(hours: 25)));
+      expect(nextAllowedReportTime([r], userId: 'u', now: now), isNull);
+    });
+
+    test('i report di ALTRI utenti non bloccano', () {
+      final r = report(price: 1.50, timestamp: now, userId: 'qualcun-altro');
+      expect(nextAllowedReportTime([r], userId: 'u', now: now), isNull);
+    });
+
+    test('conta il report PIU RECENTE, non il primo della lista', () {
+      final reports = [
+        report(price: 1.50, timestamp: now.subtract(const Duration(days: 10))),
+        report(price: 1.50, timestamp: now.subtract(const Duration(hours: 1))),
+        report(price: 1.50, timestamp: now.subtract(const Duration(days: 3))),
+      ];
+      expect(
+        nextAllowedReportTime(reports, userId: 'u', now: now),
+        now.add(const Duration(hours: 23)),
+      );
+    });
   });
 }

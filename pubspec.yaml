@@ -41,6 +41,7 @@ dependencies:
   flutter_map: ^8.3.1
   latlong2: ^0.10.1
   geoflutterfire_plus: ^0.0.34
+  geocoding: ^5.0.0
 
 dev_dependencies:
   flutter_test:

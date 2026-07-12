@@ -129,3 +129,29 @@ Future<void> submitPriceReport({
     'reportCount': derived.reportCount,
   });
 }
+
+/// ============ ANTI "CONSENSO FABBRICATO" (D19) ============
+/// Un utente puo' fare UNA segnalazione (conferma O cambio) per item ogni 24h.
+/// Senza questo limite, confermare 10 volte il proprio prezzo gonfia
+/// evidence e agreement come se fossero 10 persone diverse: per alzare la
+/// confidence devono servire persone diverse, o giorni diversi.
+const Duration reportCooldown = Duration(hours: 24);
+
+/// Se [userId] ha gia' un report dentro la finestra di cooldown, restituisce
+/// QUANDO potra' rifarne uno; null = via libera.
+/// Funzione PURA come computeDerived: testabile in isolamento e pronta per
+/// la futura Cloud Function (dove il controllo diventera' inaggirabile).
+DateTime? nextAllowedReportTime(
+  List<PriceReport> reports, {
+  required String userId,
+  required DateTime now,
+}) {
+  DateTime? latest;
+  for (final r in reports) {
+    if (r.userId != userId || r.timestamp == null) continue;
+    if (latest == null || r.timestamp!.isAfter(latest)) latest = r.timestamp;
+  }
+  if (latest == null) return null;
+  final next = latest.add(reportCooldown);
+  return next.isAfter(now) ? next : null;
+}
