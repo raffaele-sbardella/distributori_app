@@ -24,5 +24,9 @@ lib/firebase_options.dart
 .firebase/
 *.log
 
+# Knowledge graph generato da `graphify update .` (solo AST, si rigenera
+# gratis su ogni macchina): e' un derivato, come build/.
+graphify-out/
+
 # OS
 .DS_Store

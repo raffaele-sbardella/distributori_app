@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'firebase_options.dart';
 import 'models/app_user.dart';
 import 'screens/map/map_screen.dart';
+import 'screens/tutorial/tutorial_screen.dart';
 
 Future<void> main() async {
   // Obbligatorio PRIMA di qualsiasi await in main(): i plugin nativi
@@ -119,7 +120,9 @@ class _AuthGateState extends State<AuthGate> {
           );
         }
 
-        return const MapScreen();
+        // Secondo cancello: al primo avvio su questo dispositivo, prima
+        // della mappa si passa dal tutorial (flag in SharedPreferences).
+        return const TutorialGate(child: MapScreen());
       },
     );
   }

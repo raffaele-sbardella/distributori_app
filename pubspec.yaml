@@ -42,6 +42,7 @@ dependencies:
   latlong2: ^0.10.1
   geoflutterfire_plus: ^0.0.34
   geocoding: ^5.0.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -53,6 +54,20 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# Icona dell'app: `dart run flutter_launcher_icons` rigenera tutte le
+# densita' Android a partire dalle due PNG in assets/icon/.
+# Per cambiare icona: sostituisci le PNG (1024x1024) e rilancia il comando.
+# - icon.png: quadrata, CON sfondo (usata dalle icone "legacy")
+# - icon_foreground.png: solo il glifo su sfondo TRASPARENTE, col disegno
+#   dentro il 60% centrale (Android la ritaglia in cerchi/forme adattive)
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#00796B"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

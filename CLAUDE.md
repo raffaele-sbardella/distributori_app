@@ -96,6 +96,23 @@ questo principio, è quasi certamente sbagliata.
       puro + testato): normalizzazione (spazi/maiuscole/formato) + fuzzy
       Damerau-Levenshtein sul catalogo → dialog "Forse è già in catalogo"
       con [Usa quello]/[Crea nuovo] in add_report (2026-07-12)
+- [x] **Identità app: "SnackSpot"** (2026-07-12): `android:label` nel manifest +
+      icona via `flutter_launcher_icons` (PNG provvisorie in `assets/icon/`,
+      pin bianco su teal; per cambiarle: sostituire le PNG e rilanciare
+      `dart run flutter_launcher_icons`). Distribuzione agli amici: APK release
+      (`flutter build apk --release`, firmato con chiave debug — ok fuori dal
+      Play Store)
+- [x] **Tutorial/onboarding** (2026-07-14): `screens/tutorial/tutorial_screen.dart`
+      (PageView 5 pagine). Al primo avvio: `TutorialGate` (flag `tutorialSeen` in
+      `shared_preferences`, locale al dispositivo) dentro `main.dart` dopo AuthGate.
+      Sempre raggiungibile dal bottone (i) nell'AppBar della mappa.
+- [x] **Marker = area inquadrata, non posizione utente** (2026-07-14): lo stream
+      `nearbyMachines` viene ri-creato (debounce 400 ms su `onPositionChanged`)
+      sul centro della camera, raggio = centro→angolo visibile, clamp 0.5–60 km.
+      Prima sottoscrizione in `onMapReady`. Da Napoli si può consultare Battipaglia.
+- [x] **Zoom out limitato ai bordi del mondo** (2026-07-14):
+      `CameraConstraint.contain` sui bounds Web Mercator (lat ±85.051): il grigio
+      fuori mappa non è mai inquadrabile; il min-zoom effettivo dipende dallo schermo.
 
 ### Da fare (in ordine)
 - [ ] **Seeding manuale di UN cluster denso a Battipaglia** ← PROSSIMO PASSO (Fase 2:
@@ -271,3 +288,13 @@ Function nel target.
 | `docs/03-ALGORITMO-PREZZI.md` | La matematica di `currentPrice` / `confidence` |
 | `docs/04-SETUP.md` | Setup Windows + console Firebase, passo passo |
 | `docs/05-ROADMAP.md` | Cosa viene dopo l'MVP |
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

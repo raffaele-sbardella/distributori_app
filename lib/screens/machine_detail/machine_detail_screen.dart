@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -49,6 +51,12 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   String _query = '';
   String? _categoryFilter; // null = tutte le categorie
 
+  // Il bottone "Aggiungi prodotto" nasce esteso (icona + scritta) per farsi
+  // notare, poi dopo 3 secondi si riduce alla sola icona: cosi' non resta
+  // per sempre sopra i bottoni delle ultime righe (Si' / E' cambiato).
+  bool _fabExtended = true;
+  Timer? _fabTimer;
+
   static const _categoryLabels = {
     'bibita': 'Bibite',
     'snack': 'Snack',
@@ -62,6 +70,9 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
     _service = FirestoreService(FirebaseFirestore.instance);
     _itemsStream = _service.itemsForMachine(widget.machine.id);
     _checkProximity();
+    _fabTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _fabExtended = false);
+    });
   }
 
   @override
@@ -69,6 +80,9 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
     // Il controller lo possediamo noi (siamo il widget che costruisce il
     // TextField della ricerca): va rilasciato nel NOSTRO dispose.
     _searchCtrl.dispose();
+    // Se l'utente esce prima dei 3 secondi, il Timer farebbe setState su una
+    // schermata morta: va cancellato come le subscription.
+    _fabTimer?.cancel();
     super.dispose();
   }
 
@@ -184,10 +198,27 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.machine.label)),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddReport,
-        icon: const Icon(Icons.add),
-        label: const Text('Aggiungi prodotto'),
+      // AnimatedSwitcher fa la dissolvenza tra il figlio "vecchio" e quello
+      // "nuovo" quando cambiano. Per capire che SONO cambiati confronta tipo
+      // e key: i due FAB hanno tipi diversi, quindi basta gia' cosi', ma le
+      // ValueKey rendono l'intenzione esplicita.
+      floatingActionButton: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        child: _fabExtended
+            ? FloatingActionButton.extended(
+                key: const ValueKey('fab-extended'),
+                onPressed: _openAddReport,
+                icon: const Icon(Icons.add),
+                label: const Text('Aggiungi prodotto'),
+              )
+            : FloatingActionButton(
+                key: const ValueKey('fab-round'),
+                onPressed: _openAddReport,
+                // tooltip = la scritta compare al TOCCO PROLUNGATO sul
+                // bottone (stesso meccanismo del pallino di confidence).
+                tooltip: 'Aggiungi prodotto',
+                child: const Icon(Icons.add),
+              ),
       ),
       body: Column(
         children: [

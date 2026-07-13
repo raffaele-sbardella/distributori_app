@@ -9,6 +9,7 @@ import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../add_machine/add_machine_screen.dart';
 import '../machine_detail/machine_detail_screen.dart';
+import '../tutorial/tutorial_screen.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -22,13 +23,14 @@ class _MapScreenState extends State<MapScreen> {
   final _mapController = MapController();
   late final FirestoreService _service;
 
-  LatLng? _center;                        // null finche' non ho la posizione
-  Stream<List<Machine>>? _machinesStream; // creato UNA volta, quando ho il centro
+  LatLng? _center;                        // null finche' non so dove partire
+  Stream<List<Machine>>? _machinesStream; // segue l'AREA INQUADRATA, non l'utente
   String? _statusMessage;                 // avviso se la posizione non c'e'
   StreamSubscription<bool>? _gpsStatusSub; // ascolta accensione/spegnimento GPS
   LatLng? _userPos;                        // pallino blu "tu sei qui"
   StreamSubscription<({double lat, double lng})>? _posSub;
-  bool _streamFromFallback = false;        // stream centrato su Battipaglia, non sull'utente
+  bool _centeredOnFallback = false;        // partiti su Battipaglia, utente mai localizzato
+  Timer? _moveDebounce;                    // anti-raffica sugli spostamenti della mappa
 
   @override
   void initState() {
@@ -59,6 +61,7 @@ class _MapScreenState extends State<MapScreen> {
     // StreamBuilder lo fa da solo; .listen() no.
     _gpsStatusSub?.cancel();
     _posSub?.cancel();
+    _moveDebounce?.cancel();
     super.dispose();
   }
 
@@ -77,45 +80,66 @@ class _MapScreenState extends State<MapScreen> {
         },
         onError: (_) {},
       );
-      final wasOnFallback = _streamFromFallback;
+      final wasOnFallback = _centeredOnFallback;
       setState(() {
         _center = here;
         _userPos = here;       // subito visibile, senza aspettare il primo evento
         _statusMessage = null; // il GPS e' tornato: via l'avviso
-        // Lo stream si crea UNA volta, MAI dentro build(). Lo si RI-crea in
-        // un solo caso: se quello esistente era centrato sul fallback e ora
-        // abbiamo la posizione vera dell'utente.
-        if (_machinesStream == null || _streamFromFallback) {
-          _streamFromFallback = false;
-          _machinesStream = _service.nearbyMachines(
-            lat: here.latitude,
-            lng: here.longitude,
-            radiusKm: 2,
-          );
-        }
+        _centeredOnFallback = false;
       });
       // Se stavamo mostrando il fallback, la mappa e' gia' sullo schermo:
       // portala sull'utente. (Non al primo avvio: li' ci pensa initialCenter,
       // e il controller non e' ancora "attaccato" a una mappa.)
+      // NB: qui NON tocchiamo lo stream dei distributori: move() sposta la
+      // camera, e ci pensa onPositionChanged a ri-sottoscrivere sull'area.
       if (wasOnFallback) _mapController.move(here, 15);
     } else {
       // Fallback: Battipaglia. La CONSULTAZIONE non richiede GPS: mappa,
       // distributori e prezzi si vedono comunque. La posizione serve solo per
-      // "vicino a te", per la conferma a un tocco e per il peso dei report.
+      // il pallino blu, per la conferma a un tocco e per il peso dei report.
       const fallback = LatLng(40.6100, 14.9800); // Battipaglia, circa
       setState(() {
         _center = fallback;
         _statusMessage = _messageFor(loc.status);
-        if (_machinesStream == null) {
-          _streamFromFallback = true;
-          _machinesStream = _service.nearbyMachines(
-            lat: fallback.latitude,
-            lng: fallback.longitude,
-            radiusKm: 2,
-          );
-        }
+        // Ricorda che l'utente non e' mai stato localizzato: se il GPS
+        // arriva DOPO, la mappa va portata su di lui (ramo qui sopra).
+        if (_userPos == null) _centeredOnFallback = true;
       });
     }
+  }
+
+  /// (Ri)crea lo stream dei distributori sull'area attualmente INQUADRATA.
+  /// I marker seguono la mappa, non la posizione dell'utente: anche da
+  /// Napoli puoi consultare i distributori di Battipaglia.
+  void _subscribeToVisibleArea() {
+    final camera = _mapController.camera;
+    // Raggio = distanza centro -> angolo visibile: il cerchio piu' piccolo
+    // che copre tutto il rettangolo sullo schermo. Il clamp mette un tetto
+    // quando si e' molto zoomati fuori: senza, geoflutterfire interrogherebbe
+    // troppe celle geohash e scaricherebbe mezzo mondo di documenti.
+    final radiusKm = const Distance().as(
+      LengthUnit.Kilometer,
+      camera.center,
+      camera.visibleBounds.northEast,
+    );
+    setState(() {
+      _machinesStream = _service.nearbyMachines(
+        lat: camera.center.latitude,
+        lng: camera.center.longitude,
+        radiusKm: radiusKm.clamp(0.5, 60),
+      );
+    });
+  }
+
+  /// Chiamata da flutter_map A OGNI micro-spostamento della camera (decine
+  /// di volte in un singolo gesto). Rifare la query Firestore ogni volta
+  /// sarebbe uno spreco: il Timer fa da "debounce" — riparte da zero a ogni
+  /// evento, e scatta solo quando la mappa e' ferma da 400 ms.
+  void _onPositionChanged(MapCamera camera, bool hasGesture) {
+    _moveDebounce?.cancel();
+    _moveDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) _subscribeToVisibleArea();
+    });
   }
 
   String _messageFor(LocationStatus s) => switch (s) {
@@ -191,7 +215,20 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Distributori vicino a te')),
+      appBar: AppBar(
+        title: const Text('SnackSpot'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Come funziona',
+            // Riaperto da qui, il tutorial ha onFinish null: "Fine" fa solo
+            // pop e si torna alla mappa (vedi TutorialScreen).
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TutorialScreen()),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           if (_statusMessage != null)
@@ -207,6 +244,24 @@ class _MapScreenState extends State<MapScreen> {
               options: MapOptions(
                 initialCenter: _center!,
                 initialZoom: 15,
+                // Limite allo zoom out: contain() rifiuta ogni movimento o
+                // zoom che porterebbe i BORDI dell'inquadratura fuori dai
+                // bounds -> mai il "grigio" oltre i confini della mappa.
+                // Il livello minimo di zoom ne discende da solo, in base
+                // alle dimensioni dello schermo.
+                cameraConstraint: CameraConstraint.contain(
+                  // Limiti della proiezione Web Mercator (le tile OSM):
+                  // oltre la latitudine ~85 la mappa non esiste proprio.
+                  bounds: LatLngBounds(
+                    const LatLng(-85.05112878, -180),
+                    const LatLng(85.05112878, 180),
+                  ),
+                ),
+                // Prima sottoscrizione sull'area visibile: solo ORA la
+                // camera esiste (_mapController.camera prima di questo
+                // momento lancerebbe un errore).
+                onMapReady: _subscribeToVisibleArea,
+                onPositionChanged: _onPositionChanged,
                 // flutter_map passa sia la posizione del dito sullo schermo
                 // (tapPosition) sia le coordinate GEOGRAFICHE (point): a noi
                 // serve solo la seconda.
