@@ -5,6 +5,8 @@ import 'package:latlong2/latlong.dart';
 
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/ss_header_button.dart';
 
 /// Form "nuovo distributore", aperto dal long-press sulla mappa.
 /// Il punto premuto E' la posizione del distributore: niente campi lat/lng
@@ -116,22 +118,56 @@ class _AddMachineScreenState extends State<AddMachineScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pos = widget.position;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Nuovo distributore')),
+      appBar: AppBar(
+        leading: const SsBackButton(),
+        title: const Text('Nuovo distributore'),
+      ),
       body: Form(
         key: _formKey,
         // ListView invece di Column: quando la tastiera si apre lo spazio si
         // dimezza, e una Column fissa andrebbe in overflow (strisce gialle).
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 40),
           children: [
+            // Conferma visiva del punto scelto col long-press: verde = ok,
+            // la posizione c'e' gia', non va digitata.
+            Container(
+              decoration: BoxDecoration(
+                color: SsColors.okBg,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+              margin: const EdgeInsets.only(bottom: 18),
+              child: Row(
+                children: [
+                  const Icon(Icons.my_location,
+                      size: 20, color: SsColors.okInk),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      'Posizione dal punto toccato · '
+                      '${pos.latitude.toStringAsFixed(4)}, '
+                      '${pos.longitude.toStringAsFixed(4)}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: SsColors.okInk,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             TextFormField(
               controller: _labelCtrl,
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
                 labelText: 'Nome / descrizione *',
                 hintText: 'es. Distributore atrio Ingegneria',
-                border: OutlineInputBorder(),
               ),
               // validator: null = campo ok, stringa = messaggio d'errore.
               validator: (v) => (v == null || v.trim().isEmpty)
@@ -143,7 +179,6 @@ class _AddMachineScreenState extends State<AddMachineScreen> {
               initialValue: _type,
               decoration: const InputDecoration(
                 labelText: 'Tipo',
-                border: OutlineInputBorder(),
               ),
               items: [
                 for (final e in _types.entries)
@@ -158,7 +193,6 @@ class _AddMachineScreenState extends State<AddMachineScreen> {
               decoration: const InputDecoration(
                 labelText: 'Indirizzo',
                 hintText: 'si compila da solo, correggilo se serve',
-                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -167,19 +201,31 @@ class _AddMachineScreenState extends State<AddMachineScreen> {
               decoration: const InputDecoration(
                 labelText: 'Gestore (facoltativo)',
                 hintText: 'es. IVS, Argenta... se leggibile sulla macchina',
-                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: _saving ? null : _save, // null = bottone disabilitato
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
               icon: _saving
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
-                  : const Icon(Icons.add_location_alt),
+                  : const Icon(Icons.add_location_alt, size: 21),
               label: Text(_saving ? 'Salvataggio...' : 'Aggiungi distributore'),
             ),
           ],

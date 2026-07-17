@@ -57,9 +57,20 @@ Product? findSimilarProduct(
     if (nameSim < _nameThreshold) continue;
 
     final pSizeKey = _matchKey(p.size);
-    final sizeSim = (sizeKey.isEmpty && pSizeKey.isEmpty)
-        ? 1.0
-        : _keysAlike(sizeKey, pSizeKey);
+    // Formato vuoto da UNA parte sola: col formato facoltativo (D20) e' il
+    // caso tipico ("Mars" nuovo vs "Mars 51g" in catalogo). Non possiamo
+    // sapere se sia lo stesso prodotto, quindi il formato NON filtra: la
+    // somiglianza vale esattamente la soglia (cosi' passa, ma un match col
+    // formato uguale resta preferito nel punteggio) e decide l'utente col
+    // dialog "Forse e' gia' in catalogo".
+    final double sizeSim;
+    if (sizeKey.isEmpty && pSizeKey.isEmpty) {
+      sizeSim = 1.0;
+    } else if (sizeKey.isEmpty || pSizeKey.isEmpty) {
+      sizeSim = _sizeThreshold;
+    } else {
+      sizeSim = _keysAlike(sizeKey, pSizeKey);
+    }
     if (sizeSim < _sizeThreshold) continue;
 
     final score = nameSim + sizeSim;

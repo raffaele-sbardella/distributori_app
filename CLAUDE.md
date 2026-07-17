@@ -98,7 +98,8 @@ questo principio, è quasi certamente sbagliata.
       con [Usa quello]/[Crea nuovo] in add_report (2026-07-12)
 - [x] **Identità app: "SnackSpot"** (2026-07-12): `android:label` nel manifest +
       icona via `flutter_launcher_icons` (PNG provvisorie in `assets/icon/`,
-      pin bianco su teal; per cambiarle: sostituire le PNG e rilanciare
+      pin bianco su arancio #F4511E — ricolorate da teal il 2026-07-15 col
+      tema Bold; per cambiarle: sostituire le PNG e rilanciare
       `dart run flutter_launcher_icons`). Distribuzione agli amici: APK release
       (`flutter build apk --release`, firmato con chiave debug — ok fuori dal
       Play Store)
@@ -113,6 +114,40 @@ questo principio, è quasi certamente sbagliata.
 - [x] **Zoom out limitato ai bordi del mondo** (2026-07-14):
       `CameraConstraint.contain` sui bounds Web Mercator (lat ±85.051): il grigio
       fuori mappa non è mai inquadrabile; il min-zoom effettivo dipende dallo schermo.
+- [x] **Restyle "SnackSpot Bold"** (2026-07-15): tema implementato dal prototipo
+      `SnackSpot Bold.dc.html` (progetto claude.ai/design "SnackSpot app prototype").
+      Palette: arancio #F4511E su crema #FFF6EE, FAB ambra #FFB020, ink #241A12;
+      font Plus Jakarta Sans (pacchetto `google_fonts`, scarica e mette in cache
+      al primo avvio, fallback al font di sistema se offline). Tutto centralizzato
+      in `lib/theme/app_theme.dart` (`SsColors`, `SsCategories`, `buildSnackSpotTheme()`):
+      le schermate NON inventano colori. `lib/widgets/ss_header_button.dart` =
+      bottoni "vetro" dell'header (aiuto + back). Novità UI: header mappa con
+      claim, pillola-suggerimento long-press sulla mappa, badge tipo + indirizzo
+      nell'header del dettaglio, card prodotto con striscia/icona categoria
+      colorate (mappa colori in `SsCategories`), banner prossimità con icona,
+      tutorial con riquadri icona tintati per pagina.
+- [x] **Formato per categoria (D20)** (2026-07-17): bibite = chips contenitore
+      obbligatorie (lattina/bottiglia/vetro/cartone, vocabolario chiuso → zero typo)
+      + taglia facoltativa; snack/altro = formato facoltativo; caffè = nessun campo.
+      Tutto in UN'unica stringa `size` col contenitore tra parentesi
+      ("(lattina) 33cl") → model/rules INVARIATI, displayName già compatibile.
+      Matcher aggiornato: formato vuoto da una parte sola NON filtra più (decide
+      l'utente col dialog). Categoria spostata sopra il formato nel form.
+      Test aggiornati (24 verdi). ⚠️ I prodotti pre-D20 vanno migrati a mano da
+      console Firebase (size + `productName` denormalizzato sugli item) PRIMA
+      del seeding.
+- [x] **Migrazione D20 eseguita** (2026-07-17): `tools/migrate_d20.py`
+      (firebase-admin, dry-run + `--apply`) ha aggiornato `size` sui ~20 products
+      e i `productName` denormalizzati. Lo script resta come embrione del
+      tooling admin di Fase 4. Chiave di servizio in `tools/serviceAccountKey.json`
+      (gitignored — MAI committarla, repo pubblico).
+- [x] **Clustering dei marker (D21)** (2026-07-17): marker sovrapposti → cerchio
+      col conteggio. `services/marker_clusterer.dart` = greedy PURO in spazio
+      schermo (pixel), testato; niente plugin (flutter_map_marker_cluster e
+      supercluster fermi a latlong2 0.9, incompatibili col nostro 0.10 —
+      trappola n.8). Ricalcolo a ogni zoom/pan via `MapCamera.of(context)` nel
+      builder. Tap → `CameraFit.bounds` sui membri; se lo zoom non separerebbe
+      (punti coincidenti) → bottom sheet con la lista.
 
 ### Da fare (in ordine)
 - [ ] **Seeding manuale di UN cluster denso a Battipaglia** ← PROSSIMO PASSO (Fase 2:
@@ -193,6 +228,12 @@ questo principio, è quasi certamente sbagliata.
   lancio uccide l'adozione. → Si premiano solo i **contributi VALIDATI** (GPS/foto/accordo
   altrui) e si sbloccano **funzioni extra** (notifiche calo prezzo, storico, filtri),
   mai la ricerca del prezzo, che resta sempre gratis e illimitata.
+- **D20 — Formato per categoria.** Bibite: contenitore obbligatorio a chips
+  (lattina/bottiglia/vetro/cartone) + taglia facoltativa; snack/altro: formato
+  facoltativo; caffè: nessun campo. Salvato in UN'unica stringa `size` col contenitore
+  tra parentesi ("(lattina) 33cl") → nessun campo nuovo su Firestore. La taglia
+  distingue prezzi diversi quasi solo per le bibite; obbligarla sugli snack PRODUCE
+  duplicati (nessuno ricorda i grammi di un Mars).
 
 ---
 

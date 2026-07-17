@@ -28,5 +28,12 @@ lib/firebase_options.dart
 # gratis su ogni macchina): e' un derivato, come build/.
 graphify-out/
 
+# Chiave admin Firebase per gli script in tools/ (il repo e' PUBBLICO:
+# questa chiave da' accesso TOTALE al progetto, non deve mai finire su git)
+serviceAccountKey.json
+
+# Ambiente virtuale Python (firebase-admin per gli script in tools/)
+.venv/
+
 # OS
 .DS_Store

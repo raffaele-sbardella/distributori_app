@@ -336,3 +336,78 @@ uguaglianza** su `userId` (basta l'indice automatico) e trova il più recente **
 aggiungere `orderBy(timestamp)` richiederebbe un indice composito (trappola n.6) senza
 guadagno reale, perché è il cooldown stesso a tenere piccolo il numero di report per
 utente per item.
+
+---
+
+## D20 — Formato per categoria: chips-contenitore per le bibite, facoltativo altrove
+
+**Decisione.** Il campo formato dipende dalla **categoria** del prodotto:
+
+| Categoria | Contenitore (chips) | Taglia/formato (testo libero) |
+|---|---|---|
+| bibita | **obbligatorio** — lattina / bottiglia / vetro / cartone | facoltativa ("33cl") |
+| snack | — | facoltativo ("45g", "2 pezzi") |
+| caffè | — | **nessun campo** (un espresso non ha formato) |
+| altro | — | facoltativo |
+
+Il tutto è salvato in **un'unica stringa `size`**, col contenitore tra parentesi:
+`"(lattina) 33cl"`, `"(bottiglia)"`, `"45g"`, `""`. Il `displayName` diventa
+"Coca-Cola (lattina) 33cl" senza toccare il model.
+
+**Perché.** L'identità del prodotto (D3) serve a distinguere cose che hanno **prezzi
+diversi** — e la taglia fa questo lavoro quasi solo per le bibite (lattina ≠ bottiglia).
+Per gli snack nessuno ricorda i grammi ("il Mars", non "il Mars da 51g"): un formato
+obbligatorio lì **produce** duplicati ("Kinder Bueno 43g" vs "Kinder Bueno 2 pezzi"),
+cioè l'esatto contrario dello scopo. E il contenitore a **vocabolario chiuso** (chips)
+rende i typo impossibili per costruzione: più robusto di qualunque fuzzy matching,
+oltre a essere ciò che la gente ricorda davvero di un distributore.
+
+**Perché una stringa sola e non un campo `container`.** Nessuna query filtra per
+contenitore: un campo nuovo sarebbe schema senza consumatori (complessità prematura).
+La stringa unica lascia invariati model, rules e matcher. Se un giorno servirà filtrare
+per contenitore, si estrae il campo allora.
+
+**Conseguenza sul paracadute anti-typo.** Col formato facoltativo, "formato vuoto da una
+parte sola" ("Mars" nuovo vs "Mars 51g" in catalogo) diventa il caso tipico: lì il
+formato **non filtra più** (somiglianza fissata alla soglia) e decide l'utente col dialog
+"Forse è già in catalogo". Vedi `findSimilarProduct` in `product_matcher.dart`.
+
+**Alternativa scartata.** Formato obbligatorio ovunque (com'era prima): per le bibite
+va bene, ma per gli snack costringe l'utente a inventare un formato che non ricorda —
+e ogni invenzione diversa è un duplicato permanente nel catalogo.
+
+---
+
+## D21 — Clustering dei marker fatto in casa (niente plugin)
+
+**Decisione.** Quando i marker si sovrappongono sullo schermo, si fondono in un cerchio
+col numero di distributori contenuti. Implementato in casa:
+`services/marker_clusterer.dart` = funzione pura generica (`clusterByPixelDistance`),
+greedy in **spazio schermo** (pixel, non metri: la stessa coppia di pin è separata a
+zoom 17 e unita a zoom 12). Tap sul cluster → zoom sui bounds dei membri
+(`CameraFit.bounds`); se lo zoom non li separerebbe (punti quasi coincidenti) → bottom
+sheet con la lista, altrimenti il tap non farebbe nulla.
+
+**Perché niente plugin.** `flutter_map_marker_cluster` e `flutter_map_supercluster`
+sono fermi a `latlong2 0.9`, incompatibile con `latlong2 0.10` richiesto dal nostro
+flutter_map 8.3 (trappola n.8, di nuovo): usarli avrebbe richiesto il **downgrade della
+libreria mappa** per un bisogno da 30 righe. Alle nostre scale (decine di marker
+nell'area visibile, già limitata dal raggio con clamp) il greedy O(n·cluster) è
+istantaneo.
+
+**Dettaglio che non si vede.** Il ricalcolo a ogni zoom/pan si aggancia con
+`MapCamera.of(context)` dentro il builder dei marker: registra il builder come
+dipendente della camera (meccanismo InheritedWidget) e flutter_map lo ridisegna da solo.
+
+**Lezione imparata (determinismo).** Il greedy dipende dall'ordine di scorrimento, e
+geoflutterfire riconsegna i documenti in ordine DIVERSO a ogni ri-sottoscrizione (cioè
+a ogni pan): risultato, cluster che "ballavano" a ogni micro-movimento. Fix: la funzione
+ordina internamente per posizione proiettata (x, poi y) prima di raggruppare — stessa
+scena → stessi cluster, qualunque ordine di arrivo. E siccome il pan è una traslazione,
+l'ordinamento per posizione non cambia muovendo la mappa. Raggio: 32 px (la testa
+visibile del pin, ~24 px, non i 44 del riquadro; con l'ancora fissa due membri possono
+distare fino a 2×raggio, quindi il raggio va tenuto stretto).
+
+**Alternativa scartata.** Ancora "mobile" (baricentro che si aggiorna a ogni membro):
+produce il cluster-serpente che ingoia marker via via più lontani ed è instabile tra
+un livello di zoom e l'altro. L'ancora fissa sul primo membro è prevedibile e testabile.

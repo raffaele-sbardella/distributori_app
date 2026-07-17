@@ -8,6 +8,8 @@ import '../../models/machine.dart';
 import '../../models/vending_item.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/ss_header_button.dart';
 import '../add_report/add_report_screen.dart';
 
 /// Dettaglio di UN distributore: lista prodotti con prezzo, pallino di
@@ -57,11 +59,12 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   bool _fabExtended = true;
   Timer? _fabTimer;
 
-  static const _categoryLabels = {
-    'bibita': 'Bibite',
+  // Etichetta corta del TIPO di distributore, per il badge nell'header.
+  static const _typeLabels = {
+    'combo': 'Misto',
     'snack': 'Snack',
-    'caffè': 'Caffè',
-    'altro': 'Altro',
+    'drink': 'Bibite',
+    'coffee': 'Caffè',
   };
 
   @override
@@ -183,21 +186,69 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
     return '${(diff.inDays / 30).round()} mesi fa';
   }
 
-  /// Soglie UI di 03-ALGORITMO-PREZZI.md: >0.6 verde, 0.3-0.6 giallo, <0.3 grigio.
-  Color _confidenceColor(double confidence) {
-    if (confidence > 0.6) return Colors.green;
-    if (confidence >= 0.3) return Colors.amber;
-    return Colors.grey;
-  }
-
   bool get _canOneTapConfirm => _proximity?.gpsVerified == true;
 
   // ============ BUILD ============
 
   @override
   Widget build(BuildContext context) {
+    final machine = widget.machine;
+    // "indirizzo · gestore" se il gestore c'e', solo l'indirizzo altrimenti.
+    final addressLine = machine.operator == null
+        ? machine.address
+        : '${machine.address} · ${machine.operator}';
+
     return Scaffold(
-      appBar: AppBar(title: Text(widget.machine.label)),
+      appBar: AppBar(
+        leading: const SsBackButton(),
+        title: Text(machine.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          // Il badge col tipo (Misto/Snack/Bibite/Caffè), stile "vetro".
+          Container(
+            margin: const EdgeInsets.only(right: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Text(
+              _typeLabels[machine.type] ?? machine.type,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+        // bottom = fascia extra sotto la riga del titolo, SEMPRE dell'AppBar
+        // (quindi arancione): qui ci va l'indirizzo. PreferredSize dichiara
+        // quanto e' alta, cosi' l'AppBar sa quanto spazio riservarle.
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(36),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Row(
+              children: [
+                const Icon(Icons.place, size: 17, color: Colors.white70),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    addressLine,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
       // AnimatedSwitcher fa la dissolvenza tra il figlio "vecchio" e quello
       // "nuovo" quando cambiano. Per capire che SONO cambiati confronta tipo
       // e key: i due FAB hanno tipi diversi, quindi basta gia' cosi', ma le
@@ -246,11 +297,17 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
                 if (items.isEmpty) {
                   return const Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
+                      padding: EdgeInsets.symmetric(horizontal: 24),
                       child: Text(
-                        'Nessun prodotto ancora per questo distributore.\n\n'
-                        'Aggiungi il primo col bottone qui sotto!',
+                        'Nessun prodotto ancora qui.\n\n'
+                        'Aggiungi il primo col bottone arancione! 🍫',
                         textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          height: 1.5,
+                          color: SsColors.subtle,
+                        ),
                       ),
                     ),
                   );
@@ -273,10 +330,19 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
                       child: visible.isEmpty
                           ? const Center(
                               child: Text(
-                                  'Nessun prodotto corrisponde ai filtri.'),
+                                'Nessun prodotto corrisponde ai filtri.',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: SsColors.subtle,
+                                ),
+                              ),
                             )
                           : ListView.builder(
-                              padding: const EdgeInsets.all(8),
+                              // In fondo c'e' aria extra: l'ultima card deve
+                              // poter scorrere sopra il FAB, non sotto.
+                              padding:
+                                  const EdgeInsets.fromLTRB(14, 10, 14, 100),
                               itemCount: visible.length,
                               itemBuilder: (context, i) =>
                                   _buildItemCard(visible[i]),
@@ -296,29 +362,40 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   Widget _buildFilterBar(List<VendingItem> items) {
     // Chip solo per le categorie DAVVERO presenti in questo distributore:
     // un chip che porta a una lista vuota e' rumore. L'ordine e' quello
-    // fisso di _categoryLabels, non quello (casuale) degli item.
+    // fisso del catalogo categorie, non quello (casuale) degli item.
     final present = {for (final it in items) it.category};
     final cats = [
-      for (final key in _categoryLabels.keys)
+      for (final key in SsCategories.labels.keys)
         if (present.contains(key)) key,
     ];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
       child: Column(
         children: [
           TextField(
             controller: _searchCtrl,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             decoration: InputDecoration(
               hintText: 'Cerca un prodotto...',
-              prefixIcon: const Icon(Icons.search),
-              isDense: true,
-              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.search, color: SsColors.subtle),
+              // La ricerca ha un bordo piu' tenue e angoli piu' morbidi dei
+              // campi dei form (dal prototipo): override locali sul tema.
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide:
+                    const BorderSide(color: SsColors.searchBorder, width: 2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide:
+                    const BorderSide(color: SsColors.primary, width: 2),
+              ),
               // La X per svuotare compare solo quando c'e' del testo.
               suffixIcon: _query.isEmpty
                   ? null
                   : IconButton(
-                      icon: const Icon(Icons.clear),
+                      icon: const Icon(Icons.close, color: SsColors.subtle),
                       onPressed: () {
                         _searchCtrl.clear();
                         setState(() => _query = '');
@@ -335,13 +412,13 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
               alignment: Alignment.centerLeft,
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 11),
                 child: Row(
                   children: [
                     _categoryChip(null, 'Tutti'),
                     for (final c in cats) ...[
                       const SizedBox(width: 8),
-                      _categoryChip(c, _categoryLabels[c]!),
+                      _categoryChip(c, SsCategories.labels[c]!),
                     ],
                   ],
                 ),
@@ -353,11 +430,24 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   }
 
   /// Un singolo chip: value == null significa "Tutti" (nessun filtro).
+  /// Pillola custom (non ChoiceChip): selezionata = piena arancio,
+  /// non selezionata = solo bordo, come nel prototipo Bold.
   Widget _categoryChip(String? value, String label) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: _categoryFilter == value,
-      onSelected: (_) => setState(() => _categoryFilter = value),
+    final active = _categoryFilter == value;
+    return OutlinedButton(
+      onPressed: () => setState(() => _categoryFilter = value),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: active ? SsColors.primary : Colors.transparent,
+        foregroundColor: active ? Colors.white : SsColors.subtle,
+        side: BorderSide(
+          color: active ? SsColors.primary : SsColors.chipBorder,
+          width: 2,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 7),
+        minimumSize: Size.zero,
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
+      child: Text(label),
     );
   }
 
@@ -365,27 +455,53 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
   Widget _buildProximityBanner() {
     final prox = _proximity;
 
-    final (color, text) = switch (prox) {
-      null => (Colors.grey.shade200, 'Controllo della posizione...'),
+    final (bg, ink, icon, text) = switch (prox) {
+      null => (
+          SsColors.searchBorder,
+          SsColors.body,
+          Icons.location_searching,
+          'Controllo della posizione...',
+        ),
       ProximityResult(gpsVerified: true) => (
-          Colors.green.shade100,
+          SsColors.okBg,
+          SsColors.okInk,
+          Icons.where_to_vote,
           'Sei al distributore: conferma i prezzi con un tocco.',
         ),
       ProximityResult(distanceMeters: final d?) => (
-          Colors.amber.shade100,
+          SsColors.warnBg,
+          SsColors.warnInk,
+          Icons.near_me,
           'Sei a ${d.round()} m: avvicinati per confermare i prezzi.',
         ),
       _ => (
-          Colors.amber.shade100,
+          SsColors.warnBg,
+          SsColors.warnInk,
+          Icons.location_disabled,
           'Posizione non disponibile: conferma a un tocco disattivata.',
         ),
     };
 
     return Container(
       width: double.infinity,
-      color: color,
-      padding: const EdgeInsets.all(10),
-      child: Text(text),
+      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      child: Row(
+        children: [
+          Icon(icon, size: 19, color: ink),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: ink,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -393,96 +509,192 @@ class _MachineDetailScreenState extends State<MachineDetailScreen> {
     final hasPrice = item.reportCount > 0 && item.lastConfirmedAt != null;
     final confidence = item.confidence(DateTime.now());
     final busy = _submitting.contains(item.id);
+    final lowConfidence = confidence < 0.3;
+    final catColor = SsCategories.color(item.category);
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    final subLine = hasPrice
+        ? (lowConfidence
+            ? 'confermato ${_timeAgo(item.lastConfirmedAt!)} — da confermare'
+            : 'confermato ${_timeAgo(item.lastConfirmedAt!)}')
+        : 'nessun prezzo segnalato';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 11),
+      // clipBehavior: ritaglia i figli sulla forma della decoration, cosi'
+      // la striscia laterale non sborda dagli angoli arrotondati.
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: SsColors.card,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            offset: Offset(0, 3),
+            blurRadius: 10,
+            color: Color(0x125A3214), // ombra calda, appena percettibile
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // La striscia verticale col colore della categoria.
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 6,
+            child: ColoredBox(color: catColor),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Il pallino di confidence. Tooltip = long-press per i curiosi.
-                Tooltip(
-                  message: 'Affidabilità: '
-                      '${(confidence * 100).round()}%',
-                  child: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _confidenceColor(confidence),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // L'icona della categoria su fondo tinta pastello.
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: SsCategories.tint(item.category),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        SsCategories.icon(item.category),
+                        size: 23,
+                        color: catColor,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.productName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Row(
+                            children: [
+                              // Il pallino di confidence: la promessa di
+                              // onesta' (§2). Tooltip = long-press.
+                              Tooltip(
+                                message:
+                                    'Affidabilità: ${(confidence * 100).round()}%',
+                                child: Container(
+                                  width: 9,
+                                  height: 9,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: SsColors.confidence(confidence),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  subLine,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: lowConfidence
+                                        ? SsColors.error
+                                        : SsColors.subtle,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (hasPrice) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        _fmtPrice(item.currentPrice),
+                        style: const TextStyle(
+                          fontSize: 23,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    item.productName,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                if (hasPrice)
-                  Text(
-                    _fmtPrice(item.currentPrice),
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                // La riga d'azione compare SOLO se il GPS certifica la
+                // vicinanza: e' il gesto D7, per chi e' davanti alla macchina.
+                if (_canOneTapConfirm)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(top: 12),
+                    padding: const EdgeInsets.only(top: 12),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        top: BorderSide(
+                          color: SsColors.cardDivider,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                    child: busy
+                        ? const Center(
+                            child: SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : hasPrice
+                            ? Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Ancora ${_fmtPrice(item.currentPrice)}?',
+                                      style: const TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: SsColors.body,
+                                      ),
+                                    ),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => _confirmPrice(item),
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 20, vertical: 8),
+                                      minimumSize: Size.zero,
+                                    ),
+                                    child: const Text('Sì'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  OutlinedButton(
+                                    onPressed: () => _askNewPrice(item),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 7),
+                                      minimumSize: Size.zero,
+                                    ),
+                                    child: const Text('È cambiato'),
+                                  ),
+                                ],
+                              )
+                            : Align(
+                                alignment: Alignment.centerRight,
+                                child: OutlinedButton(
+                                  onPressed: () => _askNewPrice(item),
+                                  child: const Text('Segnala il prezzo'),
+                                ),
+                              ),
                   ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              hasPrice
-                  ? (confidence < 0.3
-                      ? 'confermato ${_timeAgo(item.lastConfirmedAt!)} — da confermare'
-                      : 'confermato ${_timeAgo(item.lastConfirmedAt!)}')
-                  : 'nessun prezzo segnalato',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Colors.grey.shade600),
-            ),
-            // La riga d'azione compare SOLO se il GPS certifica la vicinanza:
-            // e' il gesto D7, pensato per chi e' davanti alla macchina.
-            if (_canOneTapConfirm) ...[
-              const SizedBox(height: 8),
-              if (busy)
-                const SizedBox(
-                  height: 24,
-                  width: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else if (hasPrice)
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('Ancora ${_fmtPrice(item.currentPrice)}?'),
-                    ),
-                    OutlinedButton(
-                      onPressed: () => _confirmPrice(item),
-                      child: const Text('Sì'),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () => _askNewPrice(item),
-                      child: const Text('È cambiato'),
-                    ),
-                  ],
-                )
-              else
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: OutlinedButton(
-                    onPressed: () => _askNewPrice(item),
-                    child: const Text('Segnala il prezzo'),
-                  ),
-                ),
-            ],
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

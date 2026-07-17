@@ -78,6 +78,32 @@ void main() {
       expect(m, isNull);
     });
 
+    test('formato vuoto contro formato pieno -> avvisa (decide l\'utente)', () {
+      // Col formato facoltativo (D20), "Kinder Bueno" senza formato DEVE far
+      // scattare il dialog se in catalogo esiste "Kinder Bueno 43g":
+      // il formato mancante non puo' escludere che sia lo stesso prodotto.
+      final m = findSimilarProduct(catalog, name: 'kinder bueno', size: '');
+      expect(m?.id, 'p3');
+    });
+
+    test('formato pieno contro catalogo senza formato -> avvisa', () {
+      final withBare = [...catalog, product(id: 'p4', name: 'Mars')];
+      final m = findSimilarProduct(withBare, name: 'Mars', size: '51g');
+      expect(m?.id, 'p4');
+    });
+
+    test('le parentesi del contenitore non pesano nel confronto', () {
+      // "(lattina) 33cl" vs "33cl": la chiave di confronto scarta i simboli,
+      // e "33cl" e' contenuto in "lattina33cl" -> avviso. Utile finche' in
+      // catalogo convivono la vecchia convenzione e quella nuova (D20).
+      final m = findSimilarProduct(
+        catalog,
+        name: 'Coca-Cola',
+        size: '(lattina) 33cl',
+      );
+      expect(m?.id, 'p1');
+    });
+
     test('catalogo vuoto o nome vuoto -> null, senza esplodere', () {
       expect(findSimilarProduct([], name: 'Coca-Cola', size: '33cl'), isNull);
       expect(findSimilarProduct(catalog, name: '', size: ''), isNull);

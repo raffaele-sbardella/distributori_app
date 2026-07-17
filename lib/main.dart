@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 import 'models/app_user.dart';
 import 'screens/map/map_screen.dart';
 import 'screens/tutorial/tutorial_screen.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   // Obbligatorio PRIMA di qualsiasi await in main(): i plugin nativi
@@ -29,10 +30,10 @@ class DistributoriApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Distributori',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-      ),
+      title: 'SnackSpot',
+      // Il tema "SnackSpot Bold" vive tutto in theme/app_theme.dart: colori,
+      // font, forma di bottoni/campi/snackbar. Le schermate lo ereditano.
+      theme: buildSnackSpotTheme(),
       home: const AuthGate(),
     );
   }

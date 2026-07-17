@@ -7,6 +7,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/machine.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
+import '../../services/marker_clusterer.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/ss_header_button.dart';
 import '../add_machine/add_machine_screen.dart';
 import '../machine_detail/machine_detail_screen.dart';
 import '../tutorial/tutorial_screen.dart';
@@ -184,7 +187,113 @@ class _MapScreenState extends State<MapScreen> {
       rotate: true,
       child: GestureDetector(
         onTap: () => _openDetail(m),
-        child: const Icon(Icons.location_on, size: 40, color: Colors.redAccent),
+        // L'ombra e' un SECONDO pin scuro, disegnato sotto e spostato di 2px.
+        // NB: niente `shadows:` sull'Icon — le ombre dei glifi finiscono su
+        // un layer separato e, con le trasformazioni dei marker della mappa,
+        // venivano dipinte staccate dai pin (i "marker neri fantasma").
+        child: Stack(
+          children: [
+            Transform.translate(
+              offset: const Offset(0, 2),
+              child: const Icon(Icons.location_on,
+                  size: 40, color: Colors.black26),
+            ),
+            const Icon(Icons.location_on, size: 40, color: SsColors.marker),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Il marker "cerchio col numero": N distributori sovrapposti a questo zoom.
+  Marker _buildClusterMarker(List<Machine> group) {
+    // Il cluster sta al BARICENTRO geografico dei membri (media di lat/lng:
+    // a queste distanze la sfericita' della Terra non si vede).
+    var lat = 0.0, lng = 0.0;
+    for (final m in group) {
+      lat += m.geopoint.latitude;
+      lng += m.geopoint.longitude;
+    }
+    final center = LatLng(lat / group.length, lng / group.length);
+
+    return Marker(
+      point: center,
+      width: 46,
+      height: 46,
+      rotate: true,
+      child: GestureDetector(
+        onTap: () => _openCluster(group),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: SsColors.marker,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: const [
+              BoxShadow(blurRadius: 6, color: Colors.black38),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '${group.length}',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Tap su un cluster: zooma finche' i membri si separano. Se lo zoom non
+  /// li separerebbe (distributori nello stesso palazzo, punti quasi
+  /// coincidenti), zoomare e' inutile: si apre la lista e si sceglie da li'.
+  void _openCluster(List<Machine> group) {
+    final bounds = LatLngBounds.fromPoints([
+      for (final m in group)
+        LatLng(m.geopoint.latitude, m.geopoint.longitude),
+    ]);
+    final fit = CameraFit.bounds(
+      bounds: bounds,
+      padding: const EdgeInsets.all(72),
+      maxZoom: 17.5, // oltre, le tile OSM non aggiungono dettaglio utile
+    );
+    final camera = _mapController.camera;
+    // fit.fit(camera) calcola la camera che INQUADREREBBE i bounds, senza
+    // muovere nulla: se lo zoom guadagnato e' briciole, meglio la lista.
+    if (fit.fit(camera).zoom - camera.zoom < 0.5) {
+      _showClusterSheet(group);
+    } else {
+      _mapController.fitCamera(fit);
+    }
+  }
+
+  /// La lista dei distributori di un cluster non separabile con lo zoom.
+  void _showClusterSheet(List<Machine> group) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true, // alto quanto il contenuto, non mezzo schermo
+          children: [
+            for (final m in group)
+              ListTile(
+                leading:
+                    const Icon(Icons.location_on, color: SsColors.marker),
+                title: Text(
+                  m.label,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: m.address.isEmpty ? null : Text(m.address),
+                onTap: () {
+                  Navigator.of(context).pop(); // chiudi il foglio...
+                  _openDetail(m);              // ...e apri il dettaglio
+                },
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -198,7 +307,7 @@ class _MapScreenState extends State<MapScreen> {
       child: Container(
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.blue.shade600,
+          color: SsColors.userDot,
           border: Border.all(color: Colors.white, width: 3),
           boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black38)],
         ),
@@ -216,15 +325,42 @@ class _MapScreenState extends State<MapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('SnackSpot'),
+        // Titolo su due righe (nome + claim): serve piu' spazio del default.
+        toolbarHeight: 76,
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'SnackSpot',
+              style: TextStyle(
+                fontSize: 25,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
+            SizedBox(height: 3),
+            Text(
+              'Prezzi veri, distributore per distributore',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: Colors.white70,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'Come funziona',
-            // Riaperto da qui, il tutorial ha onFinish null: "Fine" fa solo
-            // pop e si torna alla mappa (vedi TutorialScreen).
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const TutorialScreen()),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: SsHeaderButton(
+              icon: Icons.help_outline,
+              tooltip: 'Come funziona',
+              // Riaperto da qui, il tutorial ha onFinish null: "Fine" fa solo
+              // pop e si torna alla mappa (vedi TutorialScreen).
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const TutorialScreen()),
+              ),
             ),
           ),
         ],
@@ -234,12 +370,23 @@ class _MapScreenState extends State<MapScreen> {
           if (_statusMessage != null)
             Container(
               width: double.infinity,
-              color: Colors.amber.shade100,
-              padding: const EdgeInsets.all(10),
-              child: Text(_statusMessage!),
+              color: SsColors.warnBg,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+              child: Text(
+                _statusMessage!,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: SsColors.warnInk,
+                ),
+              ),
             ),
           Expanded(
-            child: FlutterMap(
+            // Stack = strati sovrapposti: la mappa sotto, la pillola-
+            // suggerimento sopra. Positioned la ancora ai bordi dello Stack.
+            child: Stack(
+              children: [
+                FlutterMap(
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: _center!,
@@ -282,16 +429,84 @@ class _MapScreenState extends State<MapScreen> {
                 if (_userPos != null)
                   MarkerLayer(markers: [_buildUserMarker(_userPos!)]),
                 // I marker: uno StreamBuilder che si ridisegna in tempo reale.
-                if (_machinesStream != null)
-                  StreamBuilder<List<Machine>>(
-                    stream: _machinesStream,
-                    builder: (context, snapshot) {
-                      final machines = snapshot.data ?? const <Machine>[];
-                      return MarkerLayer(
-                        markers: machines.map(_buildMarker).toList(),
-                      );
-                    },
+                    if (_machinesStream != null)
+                      StreamBuilder<List<Machine>>(
+                        stream: _machinesStream,
+                        builder: (context, snapshot) {
+                          final machines =
+                              snapshot.data ?? const <Machine>[];
+                          // MapCamera.of(context) fa DUE cose: ci da' la
+                          // camera corrente E registra questo builder come
+                          // suo "dipendente" (meccanismo InheritedWidget,
+                          // lo stesso di Theme.of): a ogni zoom/pan
+                          // flutter_map lo ridisegna, e i cluster si
+                          // ricalcolano sulla geometria nuova. Senza questa
+                          // riga il builder girerebbe solo quando arrivano
+                          // dati da Firestore.
+                          final camera = MapCamera.of(context);
+                          // Cluster in spazio SCHERMO: getOffsetFromOrigin
+                          // proietta lat/lng in pixel alla camera corrente.
+                          // 32 px: la TESTA visibile del pin e' ~24 px, non
+                          // i 44 del riquadro. NB: con l'ancora fissa due
+                          // membri possono distare fino a 2x il raggio, quindi
+                          // il raggio va tenuto stretto o si fondono marker
+                          // che a occhio sono ancora ben separati.
+                          final clusters = clusterByPixelDistance(
+                            machines,
+                            positionOf: (m) => camera.getOffsetFromOrigin(
+                              LatLng(m.geopoint.latitude,
+                                  m.geopoint.longitude),
+                            ),
+                            radiusPx: 32,
+                          );
+                          return MarkerLayer(
+                            markers: [
+                              for (final group in clusters)
+                                group.length == 1
+                                    ? _buildMarker(group.first)
+                                    : _buildClusterMarker(group),
+                            ],
+                          );
+                        },
+                      ),
+                  ],
+                ),
+                // Il suggerimento per il long-press, sempre visibile in basso.
+                // IgnorePointer: la pillola e' solo da guardare, i tocchi
+                // devono ATTRAVERSARLA e arrivare alla mappa sottostante.
+                Positioned(
+                  left: 14,
+                  right: 14,
+                  bottom: 14,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 15, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: SsColors.snackBg,
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: const [
+                            BoxShadow(
+                              offset: Offset(0, 4),
+                              blurRadius: 14,
+                              color: Colors.black38,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          'Tieni premuto sulla mappa per aggiungere un distributore',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: SsColors.snackInk,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
+                ),
               ],
             ),
           ),

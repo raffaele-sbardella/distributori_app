@@ -8,6 +8,8 @@ import '../../models/vending_item.dart';
 import '../../services/firestore_service.dart';
 import '../../services/location_service.dart';
 import '../../services/product_matcher.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/ss_header_button.dart';
 
 /// Aggiungi un prodotto (con prezzo) a un distributore.
 ///
@@ -17,6 +19,13 @@ import '../../services/product_matcher.dart';
 /// rompe il confronto prezzi tra distributori.
 ///
 /// Restituisce al chiamante il ReportOutcome (via Navigator.pop) se ha inviato.
+///
+/// I contenitori proposti per le bibite (D20): vocabolario CHIUSO, cosi' sul
+/// contenitore i typo sono impossibili per costruzione (piu' robusto di
+/// qualunque fuzzy matching) e "lattina"/"bottiglia" e' esattamente cio' che
+/// la gente ricorda di un distributore.
+const List<String> kDrinkContainers = ['lattina', 'bottiglia', 'vetro', 'cartone'];
+
 class AddReportScreen extends StatefulWidget {
   final Machine machine;
 
@@ -51,19 +60,13 @@ class _AddReportScreenState extends State<AddReportScreen> {
   final _brandCtrl = TextEditingController();
   final _sizeCtrl = TextEditingController();
   String _category = 'bibita';
+  String? _container; // scelto dalle chips; ha senso solo se _category == 'bibita'
   bool _saving = false;
 
   // Il controller del campo di ricerca lo POSSIEDE il widget Autocomplete:
   // noi teniamo solo un riferimento (per leggere il testo digitato), quindi
   // NON va messo in dispose() — non e' nostro.
   TextEditingController? _searchCtrl;
-
-  static const _categories = {
-    'bibita': 'Bibita',
-    'snack': 'Snack',
-    'caffè': 'Caffè',
-    'altro': 'Altro',
-  };
 
   @override
   void initState() {
@@ -127,7 +130,7 @@ class _AddReportScreenState extends State<AddReportScreen> {
     var newSize = '';
     if (_creating) {
       newName = normalizeProductName(_nameCtrl.text);
-      newSize = normalizeProductSize(_sizeCtrl.text);
+      newSize = _composeSize();
       final similar = findSimilarProduct(
         _catalog ?? const [],
         name: newName,
@@ -188,6 +191,24 @@ class _AddReportScreenState extends State<AddReportScreen> {
     }
   }
 
+  /// La stringa `size` salvata sul prodotto (D20). Il contenitore va tra
+  /// parentesi, cosi' displayName legge "Coca-Cola (lattina) 33cl" SENZA
+  /// toccare il model: size resta un'unica stringa, nessun campo nuovo su
+  /// Firestore, nessuna modifica alle rules.
+  String _composeSize() {
+    final taglia = normalizeProductSize(_sizeCtrl.text);
+    switch (_category) {
+      case 'caffè':
+        return ''; // il caffe' non ha formato per costruzione
+      case 'bibita':
+        // _container non e' mai null qui: il FormField delle chips l'ha
+        // appena validato in _submit.
+        return taglia.isEmpty ? '(${_container!})' : '(${_container!}) $taglia';
+      default:
+        return taglia; // snack / altro: formato facoltativo
+    }
+  }
+
   /// "Forse intendevi...?" — true = usa il prodotto esistente, false = crea
   /// comunque, null = annullato (tap fuori dal dialog: nessuna azione).
   /// Niente TextField ne' controller qui dentro: un AlertDialog "usa e getta"
@@ -227,38 +248,88 @@ class _AddReportScreenState extends State<AddReportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Aggiungi a ${widget.machine.label}')),
+      appBar: AppBar(
+        leading: const SsBackButton(),
+        title: Text(
+          'Aggiungi a ${widget.machine.label}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
       body: _catalog == null
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 40),
                 children: [
                   if (_catalogError)
                     Container(
                       width: double.infinity,
-                      color: Colors.amber.shade100,
-                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: SsColors.warnBg,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 15, vertical: 12),
                       margin: const EdgeInsets.only(bottom: 16),
                       child: const Text(
-                          'Catalogo non raggiungibile: puoi comunque creare '
-                          'il prodotto a mano.'),
+                        'Catalogo non raggiungibile: puoi comunque creare '
+                        'il prodotto a mano.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: SsColors.warnInk,
+                        ),
+                      ),
                     ),
                   if (!_creating) ...[
                     _buildSearchField(),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
+                    // Il prodotto scelto: card verde di conferma, con la X
+                    // per tornare a cercare.
                     if (_selected != null)
-                      ListTile(
-                        leading: const Icon(Icons.check_circle,
-                            color: Colors.green),
-                        title: Text(_selected!.displayName),
-                        subtitle: Text(_categories[_selected!.category] ??
-                            _selected!.category),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () =>
-                              setState(() => _selected = null),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: SsColors.okBg,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 15, vertical: 13),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle,
+                                size: 25, color: SsColors.success),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _selected!.displayName,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    SsCategories.label(_selected!.category),
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: SsColors.okInk,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close,
+                                  size: 20, color: SsColors.okInk),
+                              onPressed: () =>
+                                  setState(() => _selected = null),
+                            ),
+                          ],
                         ),
                       ),
                     // La via "crea nuovo" esiste ma e' volutamente in seconda
@@ -278,16 +349,24 @@ class _AddReportScreenState extends State<AddReportScreen> {
                       label: const Text('Non lo trovi? Crea un prodotto nuovo'),
                     ),
                   ] else ...[
-                    Text('Nuovo prodotto nel catalogo',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
+                    const Text(
+                      'Nuovo prodotto nel catalogo',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    const Text(
                       'Occhio ai duplicati: se esiste già (anche scritto '
                       'diverso), torna alla ricerca e scegli quello.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                        color: SsColors.subtle,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -296,7 +375,6 @@ class _AddReportScreenState extends State<AddReportScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Nome *',
                         hintText: 'es. Coca-Cola',
-                        border: OutlineInputBorder(),
                       ),
                       validator: (v) => (_creating &&
                               (v == null || v.trim().isEmpty))
@@ -304,39 +382,50 @@ class _AddReportScreenState extends State<AddReportScreen> {
                           : null,
                     ),
                     const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _sizeCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Formato *',
-                        hintText: 'es. 33cl, 45g',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (v) => (_creating &&
-                              (v == null || v.trim().isEmpty))
-                          ? 'Il formato distingue lattina da bottiglia: serve'
-                          : null,
-                    ),
-                    const SizedBox(height: 16),
+                    // La categoria PRIMA del formato: e' lei a decidere
+                    // quali campi compaiono sotto (D20).
                     DropdownButtonFormField<String>(
                       initialValue: _category,
                       decoration: const InputDecoration(
                         labelText: 'Categoria',
-                        border: OutlineInputBorder(),
                       ),
                       items: [
-                        for (final e in _categories.entries)
+                        for (final e in SsCategories.labels.entries)
                           DropdownMenuItem(
                               value: e.key, child: Text(e.value)),
                       ],
                       onChanged: (v) =>
                           setState(() => _category = v ?? 'bibita'),
                     ),
+                    if (_category == 'bibita') ...[
+                      const SizedBox(height: 16),
+                      _buildContainerPicker(),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _sizeCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Taglia (facoltativa)',
+                          hintText: 'es. 33cl, 50cl',
+                        ),
+                      ),
+                    ] else if (_category != 'caffè') ...[
+                      // Snack e altro: solo formato, facoltativo ("il pacchetto
+                      // di patatine" non ha grammi che la gente ricordi).
+                      // Il caffe' non ha proprio il campo.
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _sizeCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Formato (facoltativo)',
+                          hintText: 'es. 45g, 2 pezzi',
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _brandCtrl,
                       decoration: const InputDecoration(
                         labelText: 'Marca (facoltativa)',
-                        border: OutlineInputBorder(),
                       ),
                     ),
                     TextButton.icon(
@@ -360,21 +449,91 @@ class _AddReportScreenState extends State<AddReportScreen> {
                         : null,
                   ),
                   const SizedBox(height: 24),
+                  // Il bottone d'invio: pieno, largo tutta la pagina, angoli
+                  // 18 (non pillola: e' il gesto "importante" della schermata).
                   FilledButton.icon(
                     onPressed: _saving ? null : _submit,
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                     icon: _saving
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
-                        : const Icon(Icons.send),
+                        : const Icon(Icons.send, size: 21),
                     label: Text(_saving ? 'Invio...' : 'Invia prezzo'),
                   ),
                 ],
               ),
             ),
+    );
+  }
+
+  /// Le chips del contenitore (solo bibite).
+  ///
+  /// Costrutto nuovo: `FormField<T>` e' il "genitore generico" di
+  /// TextFormField — QUALUNQUE widget puo' partecipare alla validazione del
+  /// Form (validator chiamato da _formKey.validate(), messaggio d'errore),
+  /// non solo i campi di testo. Qui il valore vero vive in _container (stato
+  /// nostro) e il FormField serve solo per validare e mostrare l'errore.
+  Widget _buildContainerPicker() {
+    return FormField<String>(
+      validator: (_) =>
+          (_creating && _category == 'bibita' && _container == null)
+              ? 'Scegli il contenitore'
+              : null,
+      builder: (state) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Contenitore *',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: SsColors.subtle,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final c in kDrinkContainers)
+                ChoiceChip(
+                  // Solo l'etichetta e' capitalizzata: in `size` il
+                  // contenitore va minuscolo, coerente con normalizeProductSize.
+                  label: Text(c[0].toUpperCase() + c.substring(1)),
+                  selected: _container == c,
+                  onSelected: (sel) =>
+                      setState(() => _container = sel ? c : null),
+                ),
+            ],
+          ),
+          if (state.hasError)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                state.errorText!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -392,6 +551,85 @@ class _AddReportScreenState extends State<AddReportScreen> {
             '${p.name} ${p.brand ?? ''} ${p.size}'.toLowerCase().contains(q));
       },
       onSelected: (p) => setState(() => _selected = p),
+      // Come mostrare i RISULTATI (di default sarebbe una lista piatta):
+      // card bianca arrotondata, ogni riga con icona e nome della categoria.
+      optionsViewBuilder: (context, onSelected, options) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.only(top: 10),
+              // Larghezza schermo meno il padding della pagina (16+16):
+              // l'overlay dell'Autocomplete non conosce il campo sottostante.
+              width: MediaQuery.sizeOf(context).width - 32,
+              constraints: const BoxConstraints(maxHeight: 270),
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [
+                  BoxShadow(
+                    offset: Offset(0, 3),
+                    blurRadius: 10,
+                    color: Color(0x145A3214),
+                  ),
+                ],
+              ),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, i) {
+                  final p = options.elementAt(i);
+                  return InkWell(
+                    onTap: () => onSelected(p),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 15, vertical: 13),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: SsColors.cardDivider,
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            SsCategories.icon(p.category),
+                            size: 21,
+                            color: SsCategories.color(p.category),
+                          ),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Text(
+                              p.displayName,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            SsCategories.label(p.category),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: SsColors.subtle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
         _searchCtrl = controller; // riferimento, non proprieta' (v. sopra)
         return TextFormField(
@@ -400,8 +638,7 @@ class _AddReportScreenState extends State<AddReportScreen> {
           decoration: const InputDecoration(
             labelText: 'Cerca nel catalogo',
             hintText: 'es. Coca, acqua, kinder...',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.search, color: SsColors.subtle),
           ),
           // Se riscrivi dopo aver scelto, la scelta precedente decade.
           onChanged: (_) {
